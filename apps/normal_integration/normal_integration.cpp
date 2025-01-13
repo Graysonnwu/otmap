@@ -1,4 +1,5 @@
 #include "normal_integration.h"
+#include <thread>
 
 normal_integration::normal_integration(/* args */)
 {
@@ -278,14 +279,18 @@ void normal_integration::perform_normal_integration(Mesh &mesh, std::vector<std:
         addResidualBlocks(mesh, &prob, i, neighborsPerVertex[i], neighborMapPerVertex[i], eightNeighborsPerVertex[i], vertices, desired_normals[i]);
     }
 
+    int threads_num = std::thread::hardware_concurrency();
+    if (threads_num == 0) threads_num = 4;
+    std::cout << "Using " << threads_num << " threads." << std::endl;
+
     Solver::Options options;
     options.minimizer_progress_to_stdout = true;
     options.linear_solver_type = ceres::ITERATIVE_SCHUR;
     options.max_num_iterations = 200;
     options.dense_linear_algebra_library_type = ceres::LAPACK;
-    options.num_threads = 16;
+    options.num_threads = threads_num;
 
-    string error;
+    std::string error;
     if(!options.IsValid(&error))
     {
         std::cout << "Options not valid: " << error << std::endl;
@@ -294,7 +299,8 @@ void normal_integration::perform_normal_integration(Mesh &mesh, std::vector<std:
     Solver::Summary summary;
     Solve(options, &prob, &summary);
 
-    std::cout << summary.FullReport() << std::endl;
+    // std::cout << summary.FullReport() << std::endl;
+    std::cout << summary.BriefReport() << std::endl;
 
     std::vector<double> * pos;
     for(uint i=0; i<mesh.source_points.size(); i++)
