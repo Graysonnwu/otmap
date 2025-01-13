@@ -1,11 +1,12 @@
-project(otmap)
+cmake_minimum_required(VERSION 3.10)
 
-cmake_minimum_required(VERSION 3.2.0)
+project(otmap)
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release")
@@ -22,13 +23,15 @@ if(USE_CIMAGE)
     find_package(PNG)
     if(PNG_FOUND)
         add_definitions(-Dcimg_use_png)
-        set(ALLLIBS ${ALLLIBS} PNG::PNG)
+        # set(ALLLIBS ${ALLLIBS} PNG::PNG)
+        set(ALLLIBS ${ALLLIBS} ${PNG_LIBRARIES})
     endif()
 
     find_package(JPEG)
     if(JPEG_FOUND)
         add_definitions(-Dcimg_use_jpeg)
-        set(ALLLIBS ${ALLLIBS} JPEG::JPEG)
+        # set(ALLLIBS ${ALLLIBS} JPEG::JPEG)
+        set(ALLLIBS ${ALLLIBS} ${JPEG_LIBRARIES})
     endif()
 
    if(WIN32)
@@ -41,7 +44,7 @@ endif()
 include_directories(extern/)
 include_directories(otlib/)
 
-find_package(Cholmod)
+find_package(CHOLMOD)
 if(CHOLMOD_FOUND)
   message(STATUS "Enable Cholmod support")
   add_definitions("-DHAS_CHOLMOD")
@@ -49,7 +52,7 @@ if(CHOLMOD_FOUND)
   set(ALLLIBS ${ALLLIBS} ${CHOLMOD_LIBRARIES})
 else()
   message(STATUS "Disable Cholmod support (not found)")
-  message(WARNING "Chomod not found, solving will be significantly slower than expected.")
+  message(WARNING "Cholmod not found, solving will be significantly slower than expected.")
 endif()
 
 find_package(Ceres REQUIRED)
@@ -128,8 +131,9 @@ set(OTAPPUTILS_HEADER_FILES
 )
 
 add_library(otapputils ${OTAPPUTILS_SRC_FILES})
+target_link_libraries(otapputils ${CERES_LIBRARIES})
 
-add_executable(otmap apps/otmap)
+add_executable(otmap apps/otmap.cpp)
 target_link_libraries(otmap otapputils otlib ${ALLLIBS})
 
 add_executable(stippling apps/stippling.cpp)
@@ -140,3 +144,27 @@ target_link_libraries(barycenters otapputils otlib ${ALLLIBS})
 
 add_executable(transport_points apps/transport_points.cpp)
 target_link_libraries(transport_points otapputils otlib ${ALLLIBS} ${CERES_LIBRARIES})
+
+# get_target_property(CERES_INCLUDE_DIRS Ceres::ceres INTERFACE_INCLUDE_DIRECTORIES)
+# target_include_directories(otapputils PRIVATE ${CERES_INCLUDE_DIRS})
+
+# message(
+# "CERES package:
+#     found: ${CERES_FOUND}
+#     include dir: ${CERES_INCLUDE_DIRS}
+#     libraries: ${CERES_LIBRARIES}"
+# )
+
+# message(
+# "PNG package:
+#     found: ${PNG_FOUND}
+#     include dir: ${PNG_INCLUDE_DIRS}
+#     libraries: ${PNG_LIBRARIES}"
+# )
+
+# message(
+# "JPEG package:
+#     found: ${JPEG_FOUND}
+#     include dir: ${JPEG_INCLUDE_DIRS}
+#     libraries: ${JPEG_LIBRARIES}"
+# )

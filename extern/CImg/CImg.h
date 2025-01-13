@@ -2302,7 +2302,7 @@ namespace cimg_library_suffixed {
       cimg::mutex(6);
       va_list args;
       va_start(args,format);
-      const int result = std::vsprintf(s,format,args);
+      const int result = std::vsnprintf(s,sizeof(s),format,args);
       va_end(args);
       cimg::mutex(6,0);
       return result;
@@ -19669,7 +19669,7 @@ namespace cimg_library_suffixed {
         CImg<charT> res;
         if (_cimg_mp_is_vector(arg)) { // Vector
           CImg<charT>::string("vectorXXXXXXXXXXXXXXXX").move_to(res);
-          std::sprintf(res._data + 6,"%u",_cimg_mp_vector_size(arg));
+          std::snprintf(res._data + 6, sizeof(res._data) - 6, "%u",_cimg_mp_vector_size(arg));
         } else CImg<charT>::string("scalar").move_to(res);
         return res;
       }

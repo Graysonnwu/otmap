@@ -84,7 +84,7 @@ bool read_off_ascii(Surface_mesh& mesh,
 
         // position
         if(std::is_same<float,Vec3::Scalar>::value)
-          items = sscanf(lp, "%f %f %f%n", &p[0], &p[1], &p[2], &nc);
+          items = sscanf(lp, "%f %f %f%n", (float*)&p[0], (float*)&p[1], (float*)&p[2], &nc);
         else
           items = sscanf(lp, "%lf %lf %lf%n", &p[0], &p[1], &p[2], &nc);
         assert(items==3);
@@ -95,7 +95,7 @@ bool read_off_ascii(Surface_mesh& mesh,
         if (has_normals)
         {
             if(std::is_same<float,Vec3::Scalar>::value)
-              items = sscanf(lp, "%f %f %f%n", &n[0], &n[1], &n[2], &nc);
+              items = sscanf(lp, "%f %f %f%n", (float*)&n[0], (float*)&n[1], (float*)&n[2], &nc);
             else
               items = sscanf(lp, "%lf %lf %lf%n", &n[0], &n[1], &n[2], &nc);
 
@@ -110,7 +110,7 @@ bool read_off_ascii(Surface_mesh& mesh,
         if (has_colors)
         {
             if(std::is_same<float,Vec3::Scalar>::value)
-              items = sscanf(lp, "%f %f %f%n", &c[0], &c[1], &c[2], &nc);
+              items = sscanf(lp, "%f %f %f%n", (float*)&c[0], (float*)&c[1], (float*)&c[2], &nc);
             else
               items = sscanf(lp, "%lf %lf %lf%n", &c[0], &c[1], &c[2], &nc);
             if (items == 3)
@@ -125,7 +125,7 @@ bool read_off_ascii(Surface_mesh& mesh,
         if (has_texcoords)
         {
             if(std::is_same<float,Vec3::Scalar>::value)
-              items = sscanf(lp, "%f %f%n", &t[0], &t[1], &nc);
+              items = sscanf(lp, "%f %f%n", (float*)&t[0], (float*)&t[1], &nc);
             else
               items = sscanf(lp, "%lf %lf%n", &t[0], &t[1], &nc);
             assert(items == 2);

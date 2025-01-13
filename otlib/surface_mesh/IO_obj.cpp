@@ -211,7 +211,7 @@ bool write_obj(const Surface_mesh& mesh, const std::string& filename)
 
     //normals
     Surface_mesh::Vertex_property<Point> normals = mesh.get_vertex_property<Point>("v:normal");
-    bool with_normals = (normals != NULL);
+    bool with_normals = (normals != Surface_mesh::Vertex_property<Point>());
     if(with_normals)
         for (Surface_mesh::Vertex_iterator vit=mesh.vertices_begin(); vit!=mesh.vertices_end(); ++vit)
         {
