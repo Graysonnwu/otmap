@@ -2,6 +2,12 @@ build
 data
 *.DS_Store
 .vscode
+*.png
+*.jpg
+*.jpeg
+*.dat
+*.weight
+*.verts
 
 # Prerequisites
 *.d

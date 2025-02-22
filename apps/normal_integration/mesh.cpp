@@ -235,7 +235,7 @@ double calculate_polygon_area_vec(const std::vector<std::vector<double>> input_p
 }
 
 // Find neighboring vertices by vertex index
-void Mesh::find_vertex_connectivity(int vertex_index, std::vector<int>& neighborList, std::vector<int>& neighborMap) {
+void Mesh::find_vertex_connectivity(int vertex_index, std::vector<int>& neighborList, std::vector<int>& neighborMap, const std::vector<int>& mask_indices) {
     std::unordered_set<int> neighboring_vertices;
 
     // Find triangles containing the vertex
@@ -254,7 +254,12 @@ void Mesh::find_vertex_connectivity(int vertex_index, std::vector<int>& neighbor
         }
 
         // Convert set to vector to return unique neighboring vertices
-        neighborList = std::vector<int>(neighboring_vertices.begin(), neighboring_vertices.end());
+        neighborList.clear();
+        for (int neighbor : neighboring_vertices) {
+            if (mask_indices[neighbor] == 1) {
+                neighborList.push_back(neighbor);
+            }
+        }
 
         // Now construct neighborMap, ensuring pairs of neighbors are stored correctly
         for (int triangle_index : triangles_containing_vertex->second) {
@@ -263,7 +268,7 @@ void Mesh::find_vertex_connectivity(int vertex_index, std::vector<int>& neighbor
             // Store indices of the two neighbors that form a face with the current vertex
             std::vector<int> other_vertices;
             for (int j = 0; j < 3; ++j) {
-                if (triangle[j] != vertex_index) {
+                if (triangle[j] != vertex_index && mask_indices[triangle[j]] == 1) {
                     other_vertices.push_back(triangle[j]);
                 }
             }

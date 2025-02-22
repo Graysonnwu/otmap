@@ -22,6 +22,9 @@
 // Load an image as a matrix (colors are converted to gray levels
 void load_image(const char* filename, Eigen::MatrixXd &img);
 
+// Load and resize an image as a matrix (colors are converted to gray levels
+void load_resize_image(const char* filename, Eigen::MatrixXd &img, int w, int h);
+
 // Save a matrix as a gray level image
 void save_image(const char* filename, Eigen::Ref<const Eigen::MatrixXd> img);
 

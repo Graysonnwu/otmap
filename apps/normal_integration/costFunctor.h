@@ -23,8 +23,7 @@ template<typename T> T angle(T* v1, T* v2);
 template<typename T> void normalize(T* v);
 template<typename T> T evaluateInt(const T* const vertex, const T** neighbors, uint nNeighbors, const vector<int> & neighborMap, const std::vector<double> &desiredNormal, T* result);
 template<typename T> void calcVertexNormal(const T* vertex, T* result, T** faceNormals, const T** neighbors, const vector<int> & neighborMap);
-template<typename T> T evaluateReg(const T** const allVertices, const float* L, uint nVertices);
-
+template<typename T> void evaluateReg(const T** const allVertices, const float* L, uint nVertices, T* res);
 
 /******************************************************/
 /*************** Ceres-Helper-Methods *****************/
@@ -70,10 +69,10 @@ template<typename T> void normalize(T* v)
     sum = ceres::sqrt(sum);
 
     //if (sum > T(10e-12)) {
-        for (uint i=0; i<3; i++)
-        {
-            v[i] = v[i]/sum;
-        }
+    for (uint i=0; i<3; i++)
+    {
+        v[i] = v[i]/sum;
+    }
     //}
 }
 
@@ -152,7 +151,7 @@ template<typename T> void calcVertexNormal(const T* vertex, T* result, T** faceN
             edge2Sub[j] = neighbors[neighborMap[i+1]][j];
         }
 
-
+            
         for(uint j=0; j<3; j++)
         {
             edge1Res[j] = edge1[j] - edge1Sub[j];
@@ -457,6 +456,29 @@ private:
 
 };
 
+class CostFunctorEint1Neighbors{
+public:
+    CostFunctorEint1Neighbors(std::vector<double> &desiredNormal, vector<int> & neighborMap): desiredNormal(desiredNormal), neighborMap(neighborMap)
+    {}
+
+    template <typename T> bool operator()(const T* const vertex,
+                                          const T* const neighbor1,
+                                          T* residual) const
+    {
+        // -- preparation
+        const T* neighbors[1];
+        neighbors[0] = neighbor1;
+
+        evaluateInt(vertex, neighbors, 1, neighborMap, desiredNormal, residual);
+
+        return true;
+    }
+
+private:
+    std::vector<double> desiredNormal;
+    vector<int> neighborMap;
+};
+
 
 
 /****/
@@ -469,203 +491,7 @@ inline void printLaplacien(float* L, int size){
     std::cout<<"|"<<std::endl;
 };
 
-/********* EReg *********/
-
-class CostFunctorEreg8Neighbors{
-public:
-    CostFunctorEreg8Neighbors(vector<int> neighbors){
-
-        uint size = neighbors.size() + 1;
-        L = new float[size];
-        L[0] = - float(neighbors.size());
-        for (uint i=1; i<size; i++)
-        {
-            L[i] = 1;
-        }
-        printLaplacien(L,8);
-    }
-
-    ~CostFunctorEreg8Neighbors()
-    {
-        delete[] L;
-    }
-
-    template <typename T> bool operator()(const T* const vertex,
-                                          const T* const neighbor1,
-                                          const T* const neighbor2,
-                                          const T* const neighbor3,
-                                          const T* const neighbor4,
-                                          const T* const neighbor5,
-                                          const T* const neighbor6,
-                                          const T* const neighbor7,
-                                          const T* const neighbor8,
-                                          T* residual) const
-    {
-
-        const T* allVertices[9];
-        allVertices[0] = vertex;
-        allVertices[1] = neighbor1;
-        allVertices[2] = neighbor2;
-        allVertices[3] = neighbor3;
-        allVertices[4] = neighbor4;
-        allVertices[5] = neighbor5;
-        allVertices[6] = neighbor6;
-        allVertices[7] = neighbor7;
-        allVertices[8] = neighbor8;
-
-
-        evaluateReg(allVertices, L, 9, residual);
-
-        return true;
-    }
-
-private:
-    float* L;
-};
-
-class CostFunctorEreg7Neighbors{
-public:
-    CostFunctorEreg7Neighbors(vector<int> neighbors){
-
-        uint size = neighbors.size() + 1;
-        L = new float[size];
-        L[0] = - float(neighbors.size());
-        for (uint i=1; i<size; i++)
-        {
-            L[i] = 1;
-        }
-    }
-
-    ~CostFunctorEreg7Neighbors()
-    {
-        delete[] L;
-    }
-
-    template <typename T> bool operator()(const T* const vertex,
-                                          const T* const neighbor1,
-                                          const T* const neighbor2,
-                                          const T* const neighbor3,
-                                          const T* const neighbor4,
-                                          const T* const neighbor5,
-                                          const T* const neighbor6,
-                                          const T* const neighbor7,
-                                          T* residual) const
-    {
-
-        const T* allVertices[8];
-        allVertices[0] = vertex;
-        allVertices[1] = neighbor1;
-        allVertices[2] = neighbor2;
-        allVertices[3] = neighbor3;
-        allVertices[4] = neighbor4;
-        allVertices[5] = neighbor5;
-        allVertices[6] = neighbor6;
-        allVertices[7] = neighbor7;
-
-
-        evaluateReg(allVertices, L, 8, residual);
-
-        return true;
-    }
-
-private:
-    float* L;
-};
-
-
-class CostFunctorEreg6Neighbors{
-public:
-    CostFunctorEreg6Neighbors(vector<int> neighbors){
-
-        uint size = neighbors.size() + 1;
-        L = new float[size];
-        L[0] = - float(neighbors.size());
-        for (uint i=1; i<size; i++)
-        {
-            L[i] = 1;
-        }
-    }
-
-    ~CostFunctorEreg6Neighbors()
-    {
-        delete[] L;
-    }
-
-    template <typename T> bool operator()(const T* const vertex,
-                                          const T* const neighbor1,
-                                          const T* const neighbor2,
-                                          const T* const neighbor3,
-                                          const T* const neighbor4,
-                                          const T* const neighbor5,
-                                          const T* const neighbor6,
-                                          T* residual) const
-    {
-
-        const T* allVertices[7];
-        allVertices[0] = vertex;
-        allVertices[1] = neighbor1;
-        allVertices[2] = neighbor2;
-        allVertices[3] = neighbor3;
-        allVertices[4] = neighbor4;
-        allVertices[5] = neighbor5;
-        allVertices[6] = neighbor6;
-
-
-        evaluateReg(allVertices, L, 7, residual);
-
-        return true;
-    }
-
-private:
-    float* L;
-};
-
-class CostFunctorEreg5Neighbors{
-public:
-    CostFunctorEreg5Neighbors(vector<int> neighbors){
-
-        uint size = neighbors.size() + 1;
-        L = new float[size];
-        L[0] = - float(neighbors.size());
-        for (uint i=1; i<size; i++)
-        {
-            L[i] = 1;
-        }
-    }
-
-    ~CostFunctorEreg5Neighbors()
-    {
-        delete[] L;
-    }
-
-    template <typename T> bool operator()(const T* const vertex,
-                                          const T* const neighbor1,
-                                          const T* const neighbor2,
-                                          const T* const neighbor3,
-                                          const T* const neighbor4,
-                                          const T* const neighbor5,
-                                          T* residual) const
-    {
-
-        const T* allVertices[6];
-        allVertices[0] = vertex;
-        allVertices[1] = neighbor1;
-        allVertices[2] = neighbor2;
-        allVertices[3] = neighbor3;
-        allVertices[4] = neighbor4;
-        allVertices[5] = neighbor5;
-
-
-        evaluateReg(allVertices, L, 6, residual);
-
-        return true;
-    }
-
-private:
-    float* L;
-};
-
-
+/********* EReg *********/ // 邻居数大于4的都被移除了，因为不可能（网格点邻居无斜交邻居），而且从未被引用
 class CostFunctorEreg4Neighbors{
 public:
     CostFunctorEreg4Neighbors(vector<int> neighbors){
@@ -676,7 +502,7 @@ public:
         for (uint i=1; i<size; i++)
         {
             L[i] = 1;
-        }
+        }// L = [-4 1 1 1 1]
     }
 
     ~CostFunctorEreg4Neighbors()
@@ -709,7 +535,6 @@ private:
     float* L;
 };
 
-
 class CostFunctorEreg3Neighbors{
 public:
     CostFunctorEreg3Neighbors(vector<int> neighbors){
@@ -720,7 +545,7 @@ public:
         for (uint i=1; i<size; i++)
         {
             L[i] = 1;
-        }
+        } // L = [-3, 1, 1, 1]
     }
 
     ~CostFunctorEreg3Neighbors()
@@ -751,7 +576,6 @@ private:
     float* L;
 };
 
-
 class CostFunctorEreg2Neighbors{
 public:
     CostFunctorEreg2Neighbors(vector<int> neighbors){
@@ -762,7 +586,7 @@ public:
         for (uint i=1; i<size; i++)
         {
             L[i] = 1;
-        }
+        } // L = [-2, 1, 1]
     }
 
     ~CostFunctorEreg2Neighbors()
@@ -783,6 +607,43 @@ public:
 
 
         evaluateReg(allVertices, L, 3, residual);
+
+        return true;
+    }
+
+private:
+    float* L;
+};
+
+class CostFunctorEreg1Neighbor{
+public:
+    CostFunctorEreg1Neighbor(vector<int> neighbors){
+
+        uint size = neighbors.size() + 1;
+        L = new float[size];
+        L[0] = - float(neighbors.size());
+        for (uint i=1; i<size; i++)
+        {
+            L[i] = 1;
+        } // L = [-1, 1]
+    }
+
+    ~CostFunctorEreg1Neighbor()
+    {
+        delete[] L;
+    }
+
+    template <typename T> bool operator()(const T* const vertex,
+                                          const T* const neighbor1,
+                                          T* residual) const
+    {
+
+        const T* allVertices[2];
+        allVertices[0] = vertex;
+        allVertices[1] = neighbor1;
+
+
+        evaluateReg(allVertices, L, 2, residual);
 
         return true;
     }
@@ -823,7 +684,7 @@ public:
     }
 
     template <typename T> bool operator()(const T* const vertex, T* e) const{
-        // x - proj(..) will only return the difference in y- and z-coordinates. we may ignore the rest
+        // z - proj(..) will only return the difference in x- and y-coordinates. we may ignore the rest
         T x = vertex[0] - T((*source)[0]);
         T y = vertex[1] - T((*source)[1]);
         e[0] = T(EDIR_WEIGHT*weightMultiplicator) * x;

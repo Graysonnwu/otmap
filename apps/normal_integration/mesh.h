@@ -47,7 +47,7 @@ class Mesh {
 
         std::pair<std::vector<std::pair<int, int>>, std::vector<int>> find_adjacent_elements(int vertex_index);
 
-        void find_vertex_connectivity(int vertex_index, std::vector<int> &neighborList, std::vector<int> &neighborMap);
+        void find_vertex_connectivity(int vertex_index, std::vector<int> &neighborList, std::vector<int> &neighborMap, const std::vector<int>& mask_indices);
 
         std::vector<std::vector<double>> calculate_refractive_normals(double focal_len, double refractive_index);
         std::vector<std::vector<double>> calculate_refractive_normals_uniform(std::vector<std::vector<double>> target_pts, double focal_len, double refractive_index); 

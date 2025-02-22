@@ -46,6 +46,31 @@ void load_image(const char* filename, MatrixXd &data)
     data /= maxval;
 }
 
+void load_resize_image(const char* filename, MatrixXd &data, int w, int h)
+{
+  cimg_library::CImg<double> img(filename);
+
+  if(img.is_empty())
+  {
+    std::cerr << "ERROR image \"" << filename << "\" not found or empty\n";
+    data.resize(0,0);
+    return;
+  }
+
+  img.resize(w, h);
+  data.resize(h, w);
+
+  for(int j=0; j<w; ++j)
+    for(int i=0; i<h; ++i)
+      if(img.depth()==1)
+        data(i,j) = img(i,j,0,0)/255.f;
+      else
+        data(i,j) = (img(i,j,0,0)*11.0 + img(i,j,0,1) * 16.0 + img(i,j,0,2)*5.0)/(32.*255.);
+  double maxval = data.maxCoeff();
+  if(maxval>1)
+    data /= maxval;
+}
+
 void save_image(const char* filename, Ref<const MatrixXd> data)
 {
   int h = data.cols();

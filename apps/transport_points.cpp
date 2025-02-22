@@ -273,6 +273,36 @@ std::vector<std::vector<double>> applyTargetPlaneTransform(
     return target_pts;
 }
 
+void generate_mask(
+    const MatrixXd &image,
+    const std::vector<std::vector<double>> &source_points,
+    double ratio,
+    std::vector<int> &mask_indices)
+{
+    int h = image.rows();
+    int w = image.cols();
+    mask_indices.resize(source_points.size(), -1); // default -1 (not within shape)
+
+    for (uint i = 0; i < source_points.size(); i++)
+    {
+        // source_points index -> image coordinate
+        int x = i % h;
+        int y = i / h;
+
+        // boundary check, ensure the mapped point is in the image range
+        if (x < 0 || x >= w || y < 0 || y >= h){
+            printf("x: %d, y: %d\n", x, y);
+            continue;
+        }
+
+        // if within shape, mask = 1
+        if (image(y, x) > 0.01) // threshold
+        {
+            mask_indices[i] = 1;
+        }
+    }
+}
+
 //compute the desired normals
 std::vector<std::vector<double>> fresnelMapping(
     std::vector<std::vector<double>> &vertices,
@@ -370,7 +400,13 @@ int main(int argc, char** argv)
     tile.push_back(point);
   }
 
-  normal_int.initialize_data(mesh);
+  MatrixXd src_image;
+  load_resize_image(opts.filename_src.c_str(), src_image, opts.resolution_height, opts.resolution_height); //将图像缩放为和trg_pts一样大小
+
+  std::vector<int> mask_indices;
+  generate_mask(src_image, mesh.source_points, ratio, mask_indices);
+
+  normal_int.initialize_data(mesh, mask_indices);
 
   GridBasedTransportSolver otsolver;
   otsolver.set_verbose_level(opts.verbose_level-1);
@@ -464,6 +500,47 @@ int main(int argc, char** argv)
       std::vector<double> point = {tile[i].x()*ratio, 1.0 - tile[i].y()*ratio, 0}; // ratio 1
       trg_pts.push_back(point);
     }
+    
+    // read trg_pts from file (migrate points from Caustic_Design repo)
+    if(false) {
+      std::vector<std::vector<double>> src_pts_temp;
+      std::vector<std::vector<double>> trg_pts_temp;
+      std::ifstream file("x-shield-otmap.dat");
+      if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+          std::istringstream iss(line);
+          double src_x, src_y, trg_x, trg_y;
+          // 读取每一行的数据
+          if (iss >> src_x >> src_y >> trg_x >> trg_y) {
+            std::vector<double> src_pt = {src_x, src_y, 0};
+            std::vector<double> trg_pt = {trg_x, trg_y, 0};
+            src_pts_temp.push_back(src_pt);
+            trg_pts_temp.push_back(trg_pt);
+          }
+        }
+        file.close();
+      } else {std::cerr << "Cannot open file" << std::endl;}
+
+      if (src_pts_temp.size() != mesh.source_points.size()) {
+        std::cerr << "Point number mismatch" << std::endl;
+      }
+
+      for (int i=0; i<mesh.source_points.size(); i++){
+        mesh.source_points[i] = src_pts_temp[i];
+        trg_pts[i] = trg_pts_temp[i];
+      }
+    }
+
+    // if not within shape, move points to source location
+    for (uint i = 0; i < trg_pts.size(); i++)
+    {
+        if (mask_indices[i] == -1)
+        {
+            trg_pts[i] = mesh.source_points[i];
+        }
+    }
+    
     // size(sp) = size(tp) = max(res,res_h)^2
     // spx[0,ratio], spy[0,1], tpx[0,ratio], tpy[0,1]
     // 将mesh.source_points和trg_pts的xy坐标中心点都从(ratio/2,0.5)移到原点
@@ -528,22 +605,17 @@ int main(int argc, char** argv)
     printf("tp_max_x2 = %5.2f, tp_max_y2 = %5.2f, tp_max_z2 = %5.2f\r\n", tp_max_x2, tp_max_y2, tp_max_z2);
     printf("tp_min_x2 = %5.2f, tp_min_y2 = %5.2f, tp_min_z2 = %5.2f\r\n", tp_min_x2, tp_min_y2, tp_min_z2);
 
-    // // 暂时加回去，需测试
-    // if (opts.point_light){
-    //   lightPosition[0] -= ratio/2;
-    //   lightPosition[1] -= 0.5;
-    // }
-    // for (int i=0; i<mesh.source_points.size(); i++)
-    // {
-    //   mesh.source_points[i][0] -= ratio/2;
-    //   mesh.source_points[i][1] -= 0.5;
-    //   trg_pts[i][0] -= ratio/2;
-    //   trg_pts[i][1] -= 0.5;
-    // }
+    // move black points backward by 0.05
+    for (int i=0; i<mesh.source_points.size(); i++)
+    {
+      if (mask_indices[i] == -1){
+        mesh.source_points[i][2] += 0.05;
+      }
+    }
 
     std::vector<std::vector<double>> desired_normals;
 
-    for (int i=0; i<10; i++)
+    for (int i=0; i<5; i++)
     {
         std::vector<std::vector<double>> normals = fresnelMapping(mesh.source_points, trg_pts, 1.49, lightPosition, opts.reflective_caustics, opts.point_light);
 
@@ -555,9 +627,9 @@ int main(int argc, char** argv)
             desired_normals.push_back(trg_normal);
         }*/
 
-        normal_int.perform_normal_integration(mesh, normals);
+        normal_int.perform_normal_integration(mesh, normals, mask_indices);
 
-        std::cout << "Outer Loop: " << i+1 << "/10 done." << std::endl;
+        std::cout << "Outer Loop: " << i+1 << "/5 done." << std::endl;
         std::cout << "--------------------------------------------------ʕ•ᴥ•ʔっ♡--------------------------------------------------" << std::endl;
     }
 
