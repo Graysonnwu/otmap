@@ -8,7 +8,7 @@
 #define EINT_WEIGHT 0.1
 #define EBAR_WEIGHT 0.0
 #define EDIR_WEIGHT 5.0
-#define EREG_WEIGHT 10.0
+#define EREG_WEIGHT 20.0
 
 
 /******************************************************/
@@ -76,6 +76,7 @@ template<typename T> void normalize(T* v)
     //}
 }
 
+// Eint，即顶点法线与OTM计算出的法线的残差，允许部分偏离，该项由Edir限制
 template<typename T> T evaluateInt(const T* const vertex, const T** neighbors, uint nNeighbors, const vector<int> & neighborMap, const std::vector<double> &desiredNormal, T* result)
 {
 
@@ -90,7 +91,7 @@ template<typename T> T evaluateInt(const T* const vertex, const T** neighbors, u
         const T* n1 = neighbors[neighborMap[i]];
         const T* n2 = neighbors[neighborMap[i+1]];
 
-        calcFaceNormal(vertex, n1, n2, faceNormal);
+        calcFaceNormal(vertex, n1, n2, faceNormal); // 传入三个点，用叉积算出面法线
 
         if (faceNormal[2] < 0) {
             //faceNormal[0] = -faceNormal[0];
@@ -101,16 +102,16 @@ template<typename T> T evaluateInt(const T* const vertex, const T** neighbors, u
 
     // -- vertex normal
     T* vertexNormal = new T[3];
-    calcVertexNormal(vertex, vertexNormal, faceNormals, neighbors, neighborMap);
+    calcVertexNormal(vertex, vertexNormal, faceNormals, neighbors, neighborMap); // 对相邻面的法线加权平均，算出顶点法线，权重为两边夹角大小
 
 
-    // evaluation
+    // evaluation（顶点法线 - OTM预期法线）
     T x = vertexNormal[0] - T(desiredNormal[0]);
     T y = vertexNormal[1] - T(desiredNormal[1]);
     T z = vertexNormal[2] - T(desiredNormal[2]);
 
-    T res = T(EINT_WEIGHT) * ceres::sqrt(x*x + y*y + z*z);
-    result[0] = x*T(EINT_WEIGHT);
+    T res = T(EINT_WEIGHT) * ceres::sqrt(x*x + y*y + z*z); // 这个才是二范数，与论文一致，但返回了没用到
+    result[0] = x*T(EINT_WEIGHT); // 这个返回的是残差，而不是二范数，与论文有差别
     result[1] = y*T(EINT_WEIGHT);
     result[2] = z*T(EINT_WEIGHT);
 
@@ -129,6 +130,7 @@ template<typename T> T evaluateInt(const T* const vertex, const T** neighbors, u
     return res;
 }
 
+// 计算顶点法线，方法：对相邻面的法线加权平均，权重为(相邻面上与顶点相连)两条边的夹角大小
 template<typename T> void calcVertexNormal(const T* vertex, T* result, T** faceNormals, const T** neighbors, const vector<int> & neighborMap)
 {
     result[0] = result[1] = result[2] = T(0);
@@ -140,20 +142,16 @@ template<typename T> void calcVertexNormal(const T* vertex, T* result, T** faceN
     T edge1Sub[3];
     T edge2Sub[3];
 
-    for(uint i=0; i<neighborMap.size(); i+=2)
+    for(uint i=0; i<neighborMap.size(); i+=2) // 遍历相邻面
     {
 
-        for (uint j=0; j<3; j++)
+        for (uint j=0; j<3; j++) // 构造两邻边向量
         {
             edge1[j] = vertex[j];
             edge2[j] = vertex[j];
             edge1Sub[j] = neighbors[neighborMap[i]][j];
             edge2Sub[j] = neighbors[neighborMap[i+1]][j];
-        }
-
             
-        for(uint j=0; j<3; j++)
-        {
             edge1Res[j] = edge1[j] - edge1Sub[j];
             edge2Res[j] = edge2[j] - edge2Sub[j];
         }
@@ -161,11 +159,11 @@ template<typename T> void calcVertexNormal(const T* vertex, T* result, T** faceN
         normalize(edge1Res);
         normalize(edge2Res);
 
-        T incidentAngle = angle(edge1Res, edge2Res);
+        T incidentAngle = angle(edge1Res, edge2Res); // 两邻边夹角
 
         T* faceNormal = faceNormals[i/2];
 
-        // use that angle as weighting
+        // 将夹角作为权重
         for (uint j=0; j<3; j++)
         {
             T val = faceNormal[j];
@@ -178,22 +176,22 @@ template<typename T> void calcVertexNormal(const T* vertex, T* result, T** faceN
 }
 
 
-// For EReg
+// Ereg（影响最大的一项），说白了就是计算邻居点坐标平均值和当前点坐标的差值，最小化该残差以确保网格表面平滑（孙宇欧论文中的E_lap，但他允许部分尖边）
 template<typename T> void evaluateReg(const T** const allVertices, const float* L, uint nVertices, T* res)
 {
 
     for (uint i=0; i<3; i++)
         res[i] = T(0);
 
-    if(nVertices == uint(5))
+    if(nVertices == uint(5)) // 标准情况，包括自身在内一共5个点，xyz坐标分别计算 -4*中+上+下+左+右
     {
         for(int i=0; i<nVertices; i++){
             for (int j=0; j<3; j++){
-                res[j] += T(L[i]) * allVertices[i][j];
+                res[j] += T(L[i]) * allVertices[i][j];  // L为简化的拉普拉斯矩阵，形式为[-邻居数, 1, 1, 1, 1...]，有多少邻居就有多少1
             }
         }
     }
-    else
+    else // 非标准情况（边界），只叠加z分量，x分量和y分量强制设为0，乘对应拉普拉斯算子（也就是只看z轴上的偏离情况）
     {
         for(uint i=0; i<nVertices; i++)
         {
@@ -205,6 +203,7 @@ template<typename T> void evaluateReg(const T** const allVertices, const float* 
 
     for (uint i=0; i<3; i++)
         res[i] = res[i] * T(EREG_WEIGHT);
+        // res[i] = atan(res[i]*1e2 * T(EREG_WEIGHT))/1e2; // 限制大值影响
 }
 
 
@@ -677,7 +676,7 @@ private:
 
 
 /********* EDir *********/
-
+// 即顶点偏移的距离（xy平面上，不计算z轴）
 class CostFunctorEdir2{
 public:
     CostFunctorEdir2(std::vector<double> * s, float weightMultiplicator): source(s), weightMultiplicator(weightMultiplicator) {

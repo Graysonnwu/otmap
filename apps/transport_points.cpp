@@ -25,29 +25,6 @@ using namespace otmap;
 
 void output_usage()
 {
-  // std::cout << "usage : sample <option> <value>" << std::endl;
-
-  // std::cout << std::endl;
-
-  // std::cout << "input options : " << std::endl;
-  // std::cout << " * -in <filename> -> input image" << std::endl;
-
-  // std::cout << std::endl;
-
-  // CLI_OTSolverOptions::print_help();
-
-  // std::cout << std::endl;
-
-  // std::cout << " * -ores <res1> <res2> <res3> ... -> ouput point resolutions" << std::endl;
-  // std::cout << " * -ptscale <value>               -> scaling factor to apply to SVG point sizes (default 1)" << std::endl;
-  // std::cout << " * -pattern <value>               -> pattern = poisson or a .dat file, default is tiling from uniform_pattern_sig2012.dat" << std::endl;
-  // std::cout << " * -export_maps                   -> write maps as .off files" << std::endl;
-
-  // std::cout << std::endl;
-
-  // std::cout << "output options :" << std::endl;
-  // std::cout << " * -out <prefix>" << std::endl;
-
   std::cout << "___________________________________\n";
   std::cout << "Real usage:\n";
   std::cout << "./transport_points -in_src <src_image> -in_trg <trg_image> -res <grid_size> -focal <focal_length> -o <output_obj>\n\n";
@@ -77,6 +54,7 @@ struct CLIopts : CLI_OTSolverOptions
   uint resolution;
   uint resolution_height;
   double focal_length;
+  double thickness;
 
   std::string out_prefix;
 
@@ -105,6 +83,7 @@ struct CLIopts : CLI_OTSolverOptions
     resolution = 100;
     resolution_height = 100;
     focal_length = 3.0;
+    thickness = 0.2;
 
     CLI_OTSolverOptions::set_default();
   }
@@ -198,6 +177,10 @@ struct CLIopts : CLI_OTSolverOptions
     if(args.getCmdOption("-focal", value)){
       focal_length = std::atof(value[0].c_str());
       trgPlanePosition[2] = -focal_length;
+    }
+
+    if(args.getCmdOption("-thick", value)){
+      thickness = std::atof(value[0].c_str());
     }
 
     return true;
@@ -296,11 +279,101 @@ void generate_mask(
         }
 
         // if within shape, mask = 1
-        if (image(y, x) > 0.01) // threshold
+        if (image(y, x) > 0.0001) // threshold
         {
             mask_indices[i] = 1;
         }
     }
+}
+
+// 计算前表面折射点
+std::vector<double> computeFrontRefractionPoint(
+    const std::vector<double>& vertexPosition,
+    const std::vector<double>& pointLightPosition,
+    double refractive_index,
+    double front_surface_z
+) {
+    const double n1 = 1.0; // 空气折射率
+    const double n2 = refractive_index; // 材料折射率
+    const double CONVERGENCE_THRESHOLD = 1e-6;
+    const int MAX_ITERATIONS = 1000;
+    const double LEARNING_RATE = 0.05;
+
+    // 计算从光源指向顶点的光线方向，S -> T
+    std::vector<double> rayDir = {
+        vertexPosition[0] - pointLightPosition[0],
+        vertexPosition[1] - pointLightPosition[1],
+        vertexPosition[2] - pointLightPosition[2]
+    };
+    rayDir = normalize_vec(rayDir);
+
+    // 计算射线与平面的交点
+    double t = (front_surface_z - pointLightPosition[2]) / rayDir[2];
+    if (std::abs(rayDir[2]) < 1e-6) {
+        std::cerr << "Warning: No intersect point for vertex at (" << vertexPosition[0] << ", " << vertexPosition[1] << ", " << vertexPosition[2] << ")\n";
+        return pointLightPosition;
+    }
+
+    std::vector<double> intersectionPoint = {
+        pointLightPosition[0] + t * rayDir[0],
+        pointLightPosition[1] + t * rayDir[1],
+        pointLightPosition[2] + t * rayDir[2]
+    };
+
+    double x_p = intersectionPoint[0];
+    double y_p = intersectionPoint[1];
+
+    // 使用梯度下降法最小化光程，S(光源) -> P(前表面) -> T(后表面)
+    bool converged = false;
+    for(int iter = 0; iter < MAX_ITERATIONS; ++iter) {
+        std::vector<double> P = {x_p, y_p, front_surface_z};
+        std::vector<double> S_to_P = {
+            P[0] - pointLightPosition[0],
+            P[1] - pointLightPosition[1],
+            P[2] - pointLightPosition[2]
+        };
+        std::vector<double> P_to_T = {
+            vertexPosition[0] - P[0],
+            vertexPosition[1] - P[1],
+            vertexPosition[2] - P[2]
+        };
+
+        double dist_S_P = std::sqrt(S_to_P[0] * S_to_P[0] + S_to_P[1] * S_to_P[1] + S_to_P[2] * S_to_P[2]);
+        double dist_P_T = std::sqrt(P_to_T[0] * P_to_T[0] + P_to_T[1] * P_to_T[1] + P_to_T[2] * P_to_T[2]);
+
+        // 防止除零
+        if (dist_S_P < 1e-6 || dist_P_T < 1e-6) {
+            std::cerr << "Warning: Lens too thin for vertex at (" << vertexPosition[0] << ", " << vertexPosition[1] << ", " << vertexPosition[2] << ")\n";
+            break;
+        }
+
+        // 计算光程
+        // double L = dist_S_P / n2 + dist_P_T / n1;
+
+        // 计算梯度
+        double dL_dx = ((P[0] - pointLightPosition[0]) / (n2 * dist_S_P)) - 
+                      ((vertexPosition[0] - P[0]) / (n1 * dist_P_T));
+        double dL_dy = ((P[1] - pointLightPosition[1]) / (n2 * dist_S_P)) - 
+                      ((vertexPosition[1] - P[1]) / (n1 * dist_P_T));
+
+        // 更新x_p和y_p
+        x_p -= LEARNING_RATE * dL_dx;
+        y_p -= LEARNING_RATE * dL_dy;
+
+        // 检查收敛性
+        if (std::abs(dL_dx) < CONVERGENCE_THRESHOLD && 
+            std::abs(dL_dy) < CONVERGENCE_THRESHOLD) {
+            converged = true;
+            // std::cout << "Converged after " << iter << " iterations. Final refraction point at (" << x_p << ", " << y_p << ", " << front_surface_z << ") for vertex at (" << vertexPosition[0] << ", " << vertexPosition[1] << ", " << vertexPosition[2] << ")\n";
+            break;
+        }
+    }
+
+    if (!converged) {
+        std::cerr << "Warning: Gradient descent did not converge. Final refraction point at (" << x_p << ", " << y_p << ", " << front_surface_z << ") for vertex at (" << vertexPosition[0] << ", " << vertexPosition[1] << ", " << vertexPosition[2] << ")\n";
+    }
+
+    return {x_p, y_p, front_surface_z};
 }
 
 //compute the desired normals
@@ -310,7 +383,8 @@ std::vector<std::vector<double>> fresnelMapping(
     double refractive_index,
     const std::vector<double>& lightPosition,
     bool reflective_caustics = false,
-    bool point_light = false
+    bool point_light = false,
+    double front_surface_z = 0.2
     ) 
 {
 
@@ -319,11 +393,12 @@ std::vector<std::vector<double>> fresnelMapping(
     for(int i = 0; i < vertices.size(); i++) {
         // 光线方向。光源在下方，vertex -> light
         std::vector<double> incidentLight;
-        if (point_light) { // 点光源
+        if (point_light) { // 点光源，要考虑前表面折射，不能简单两者相减
+            std::vector<double> frontRefrationPoint = computeFrontRefractionPoint(vertices[i], lightPosition, refractive_index, front_surface_z);
             incidentLight = {
-                lightPosition[0] - vertices[i][0],
-                lightPosition[1] - vertices[i][1],
-                lightPosition[2] - vertices[i][2]
+                frontRefrationPoint[0] - vertices[i][0],
+                frontRefrationPoint[1] - vertices[i][1],
+                frontRefrationPoint[2] - vertices[i][2]
             };
         } else { // 平行光
             incidentLight = lightPosition;
@@ -380,6 +455,7 @@ int main(int argc, char** argv)
   }
 
   double ratio = static_cast<double>(opts.resolution_height) / opts.resolution; // ratio必须大于1，即h>w，res_h>res
+  printf("ratio = %5.2f\r\n", ratio);
   // Mesh mesh(1.0, 1.0/2, opts.resolution, opts.resolution/2);
   // Mesh mesh(1.0, opts.height, opts.resolution, static_cast<unsigned int>(opts.resolution*opts.height));
   // Mesh mesh(1.0, opts.height, opts.resolution, (unsigned int)(opts.resolution*opts.height));
@@ -396,7 +472,7 @@ int main(int argc, char** argv)
 
   for (int i=0; i<mesh.source_points.size(); i++)
   {
-    Eigen::Vector2d point = {mesh.source_points[i][0]/ratio, (1.0 - mesh.source_points[i][1])/ratio}; // 1 1/ratio
+    Eigen::Vector2d point = {mesh.source_points[i][0]/ratio, mesh.source_points[i][1]/ratio}; // 1 1/ratio
     tile.push_back(point);
   }
 
@@ -466,28 +542,6 @@ int main(int argc, char** argv)
   for(unsigned int i=0; i<opts.ores.size(); ++i){
     
     std::vector<Eigen::Vector2d> points;
-    //t_generate_uniform.start();
-    //generate_blue_noise_tile(opts.ores[i], points, tile);
-    //t_generate_uniform.stop();
-
-    // double min_x = 1000000.0f , min_y = 1000000.0f;
-    // double max_x = -1000000.0f, max_y = -1000000.0f;
-
-    // for (int j=0; j<tile.size(); j++) {
-    //   if (max_x < tile[j].x()) {max_x = tile[j].x();}
-    //   if (max_y < tile[j].y()) {max_y = tile[j].y();}
-
-    //   if (min_x > tile[j].x()) {min_x = tile[j].x();}
-    //   if (min_y > tile[j].y()) {min_y = tile[j].y();}
-    // }
-    // printf("tile_min_x = %5.2f, tile_min_y = %5.2f\r\n", min_x, min_y); // 0 0
-    // printf("tile_max_x = %5.2f, tile_max_y = %5.2f\r\n", max_x, max_y); // 1 1/ratio
-
-
-    // compute inverse map
-    //Surface_mesh inv_map = tmap_src.origin_mesh();
-    //apply_inverse_map(tmap_src, inv_map.points(), opts.verbose_level);
-    //inv_map.write("./test.obj");
 
     t_inverse.start();
     apply_forward_map(tmap_src, tile, opts.verbose_level-1); // 该行即为插值步骤
@@ -497,15 +551,16 @@ int main(int argc, char** argv)
     std::vector<std::vector<double>> trg_pts;
     for (int i=0; i<mesh.source_points.size(); i++)
     {
-      std::vector<double> point = {tile[i].x()*ratio, 1.0 - tile[i].y()*ratio, 0}; // ratio 1
+      std::vector<double> point = {tile[i].x()*ratio, tile[i].y()*ratio, 0}; // ratio 1
       trg_pts.push_back(point);
     }
     
-    // read trg_pts from file (migrate points from Caustic_Design repo)
+    // read points from file (migrate points from Caustic_Design repo)
     if(false) {
       std::vector<std::vector<double>> src_pts_temp;
       std::vector<std::vector<double>> trg_pts_temp;
-      std::ifstream file("x-shield-otmap.dat");
+      std::ifstream file("pixlens-test.dat");
+      // std::ifstream file("head-grey-otmap.dat");
       if (file.is_open()) {
         std::string line;
         while (std::getline(file, line)) {
@@ -557,12 +612,14 @@ int main(int argc, char** argv)
     double tp_min_x = 1000000.0f, tp_min_y = 1000000.0f, tp_min_z = 1000000.0f;
     for (int i=0; i<trg_pts.size(); i++)
     {
-      if (tp_max_x < trg_pts[i][0]) {tp_max_x = trg_pts[i][0];}
-      if (tp_max_y < trg_pts[i][1]) {tp_max_y = trg_pts[i][1];}
-      if (tp_max_z < trg_pts[i][2]) {tp_max_z = trg_pts[i][2];}
-      if (tp_min_x > trg_pts[i][0]) {tp_min_x = trg_pts[i][0];}
-      if (tp_min_y > trg_pts[i][1]) {tp_min_y = trg_pts[i][1];}
-      if (tp_min_z > trg_pts[i][2]) {tp_min_z = trg_pts[i][2];}
+      if (mask_indices[i] == 1) {
+        if (tp_max_x < trg_pts[i][0]) {tp_max_x = trg_pts[i][0];}
+        if (tp_max_y < trg_pts[i][1]) {tp_max_y = trg_pts[i][1];}
+        if (tp_max_z < trg_pts[i][2]) {tp_max_z = trg_pts[i][2];}
+        if (tp_min_x > trg_pts[i][0]) {tp_min_x = trg_pts[i][0];}
+        if (tp_min_y > trg_pts[i][1]) {tp_min_y = trg_pts[i][1];}
+        if (tp_min_z > trg_pts[i][2]) {tp_min_z = trg_pts[i][2];}
+      }
     }
     printf("tp_max_x  = %5.2f, tp_max_y  = %5.2f, tp_max_z  = %5.2f\r\n", tp_max_x, tp_max_y, tp_max_z);
     printf("tp_min_x  = %5.2f, tp_min_y  = %5.2f, tp_min_z  = %5.2f\r\n", tp_min_x, tp_min_y, tp_min_z);
@@ -577,47 +634,58 @@ int main(int argc, char** argv)
     printf("targetPlaneRotation = %.2f, %.2f, %.2f\r\n", targetPlaneRotation[0], targetPlaneRotation[1], targetPlaneRotation[2]);
     printf("targetPlaneScale    = %.2f, %.2f, %.2f\r\n", targetPlaneScale[0], targetPlaneScale[1], targetPlaneScale[2]);
 
-    // if (opts.reflective_caustics) { // 反射焦散（平行的正常，直角的不正常）
-    //   lightPosition = {0, 0, -1}; //{-1, 0, -1};
-    //   targetPlanePosition = {0, 0, -opts.focal_length};//{ratio/2+0.5, 0, -ratio/2-0.5};
-    //   targetPlaneRotation = {0, 0, 0};//{0, -90, 0}; // in degrees
-    //   targetPlaneScale = {1, 1, 1};
-    // } else { // 折射焦散
-    //   lightPosition = {0, 0, 1};
-    //   targetPlanePosition = {0, 0, -opts.focal_length};
-    //   targetPlaneRotation = {0, 0, 0}; // in degrees
-    //   targetPlaneScale = {1, 1, 1};
-    // }
-
     trg_pts = applyTargetPlaneTransform(trg_pts, targetPlanePosition, targetPlaneRotation, targetPlaneScale); // 默认仅平移到 (0,0,focal_len)
 
     double tp_max_x2 = -1000000.0f, tp_max_y2 = -1000000.0f, tp_max_z2 = -1000000.0f;
     double tp_min_x2 = 1000000.0f, tp_min_y2 = 1000000.0f, tp_min_z2 = 1000000.0f;
     for (int i=0; i<trg_pts.size(); i++)
     {
-      if (tp_max_x2 < trg_pts[i][0]) {tp_max_x2 = trg_pts[i][0];}
-      if (tp_max_y2 < trg_pts[i][1]) {tp_max_y2 = trg_pts[i][1];}
-      if (tp_max_z2 < trg_pts[i][2]) {tp_max_z2 = trg_pts[i][2];}
-      if (tp_min_x2 > trg_pts[i][0]) {tp_min_x2 = trg_pts[i][0];}
-      if (tp_min_y2 > trg_pts[i][1]) {tp_min_y2 = trg_pts[i][1];}
-      if (tp_min_z2 > trg_pts[i][2]) {tp_min_z2 = trg_pts[i][2];}
+      if (mask_indices[i] == 1) {
+        if (tp_max_x2 < trg_pts[i][0]) {tp_max_x2 = trg_pts[i][0];}
+        if (tp_max_y2 < trg_pts[i][1]) {tp_max_y2 = trg_pts[i][1];}
+        if (tp_max_z2 < trg_pts[i][2]) {tp_max_z2 = trg_pts[i][2];}
+        if (tp_min_x2 > trg_pts[i][0]) {tp_min_x2 = trg_pts[i][0];}
+        if (tp_min_y2 > trg_pts[i][1]) {tp_min_y2 = trg_pts[i][1];}
+        if (tp_min_z2 > trg_pts[i][2]) {tp_min_z2 = trg_pts[i][2];}
+      }
     }
     printf("tp_max_x2 = %5.2f, tp_max_y2 = %5.2f, tp_max_z2 = %5.2f\r\n", tp_max_x2, tp_max_y2, tp_max_z2);
     printf("tp_min_x2 = %5.2f, tp_min_y2 = %5.2f, tp_min_z2 = %5.2f\r\n", tp_min_x2, tp_min_y2, tp_min_z2);
+
+    // 将mesh.source_points和trg_pts都输出到.dat文件中
+    if(false){
+      std::string filename_dat = opts.filename_out.substr(0, opts.filename_out.find_last_of(".")) + ".dat";
+      std::ofstream file(filename_dat);
+      for (int i=0; i<mesh.source_points.size(); i++)
+      {
+        file << mesh.source_points[i][0] << " " << mesh.source_points[i][1] << " " << trg_pts[i][0] << " " << trg_pts[i][1] << " " << mask_indices[i] << "\n";
+      }
+      file.close();
+    }
 
     // move black points backward by 0.05
     for (int i=0; i<mesh.source_points.size(); i++)
     {
       if (mask_indices[i] == -1){
-        mesh.source_points[i][2] += 0.05;
+        mesh.source_points[i][2] += 0.1;
       }
     }
 
     std::vector<std::vector<double>> desired_normals;
+    double front_surface_z = opts.thickness;
 
-    for (int i=0; i<5; i++)
+    for (int i=0; i<(opts.point_light ? 10 : 5); i++)
     {
-        std::vector<std::vector<double>> normals = fresnelMapping(mesh.source_points, trg_pts, 1.49, lightPosition, opts.reflective_caustics, opts.point_light);
+        double src_max_z = 0;
+        for (int j=0; j<mesh.source_points.size(); j++) {if (mesh.source_points[j][2] > src_max_z) {src_max_z = mesh.source_points[j][2];}}
+        if(i<3){
+          front_surface_z = src_max_z + opts.thickness;
+          std::cout << "front_surface_z = src_max_z + thickness = " << src_max_z << " + " << opts.thickness << " = " << front_surface_z << std::endl;
+        }
+        else{ //迭代超过3次后，front_surface_z保持不变，加快收敛速度
+          std::cout << "thickness = front_surface_z - src_max_z = " << front_surface_z << " - " << src_max_z << " = " << front_surface_z - src_max_z << std::endl;
+        }
+        std::vector<std::vector<double>> normals = fresnelMapping(mesh.source_points, trg_pts, 1.49, lightPosition, opts.reflective_caustics, opts.point_light, front_surface_z);
 
         //desired_normals.clear();
 
@@ -629,7 +697,7 @@ int main(int argc, char** argv)
 
         normal_int.perform_normal_integration(mesh, normals, mask_indices);
 
-        std::cout << "Outer Loop: " << i+1 << "/5 done." << std::endl;
+        std::cout << "Outer Loop: " << i+1 << "/" << (opts.point_light ? 10 : 5) << " done." << std::endl;
         std::cout << "--------------------------------------------------ʕ•ᴥ•ʔっ♡--------------------------------------------------" << std::endl;
     }
 
@@ -642,7 +710,7 @@ int main(int argc, char** argv)
                 << "s  ;  bvh+inverse: " << t_inverse.value(REAL_TIMER) << "s\n";*/
 
     // mesh.save_solid_obj_source(0.2, "../output.obj"); // 0.2 为厚度
-    mesh.save_solid_obj_source(0.2, opts.filename_out);
+    mesh.save_solid_obj_source(front_surface_z, opts.filename_out);
     std::cout << "Obj file saved to " << opts.filename_out << std::endl;
   }
 }

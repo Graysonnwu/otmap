@@ -8,6 +8,7 @@ data
 *.dat
 *.weight
 *.verts
+*.zip
 
 # Prerequisites
 *.d

@@ -13,7 +13,7 @@ normal_integration::~normal_integration()
 void normal_integration::addResidualBlocks(Mesh &mesh, Problem *problem, uint vertexIndex, vector<int> &neighbors, vector<int> &neighborMap, vector<int> &gridNeighbors, double *vertices, std::vector<double> &trg_normal)
 {
     float weightMult = 1.0;
-    if(mesh.is_border(vertexIndex)) // we have an edge. Set weight for edir extremely high
+    if(mesh.is_border(vertexIndex) || gridNeighbors.size() != 4) // we have an edge. Set weight for edir extremely high
         weightMult = 10000;
 
     // EDir depends on the original position
